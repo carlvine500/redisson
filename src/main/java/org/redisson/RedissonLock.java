@@ -77,6 +77,9 @@ public class RedissonLock extends RedissonExpirable implements RLock {
     }
 
     String getChannelName() {
+        if (getName().contains("{")) {
+            return "redisson_lock__channel:" + getName();
+        }
         return "redisson_lock__channel__{" + getName() + "}";
     }
 
@@ -107,10 +110,27 @@ public class RedissonLock extends RedissonExpirable implements RLock {
     public void lockInterruptibly() throws InterruptedException {
         lockInterruptibly(-1, null);
     }
+    
+    protected <V> V getFuture(Future<V> future) {
+    	return getFuture(future, LOCK_EXPIRATION_INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+    
+    protected <V> V getFuture(Future<V> future,long timeout,TimeUnit unit) {
+    	try {
+			if (timeout == -1) {
+				timeout = LOCK_EXPIRATION_INTERVAL_SECONDS;
+				unit = TimeUnit.SECONDS;
+			}
+			return future.get(timeout, unit);
+		} catch (Exception e) {
+			log.error("", e);
+		}
+    	return null;
+	}
 
     @Override
     public void lockInterruptibly(long leaseTime, TimeUnit unit) throws InterruptedException {
-        Long ttl = tryAcquire(leaseTime, unit);
+        Long ttl = tryAcquire(leaseTime,leaseTime, unit);
         // lock acquired
         if (ttl == null) {
             return;
@@ -118,11 +138,12 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
         long threadId = Thread.currentThread().getId();
         Future<RedissonLockEntry> future = subscribe(threadId);
-        get(future);
+        //get(future);
+        getFuture(future);
 
         try {
             while (true) {
-                ttl = tryAcquire(leaseTime, unit);
+                ttl = tryAcquire(leaseTime,leaseTime, unit);
                 // lock acquired
                 if (ttl == null) {
                     break;
@@ -141,9 +162,15 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 //        get(lockAsync(leaseTime, unit));
     }
     
-    private Long tryAcquire(long leaseTime, TimeUnit unit) {
-        return get(tryAcquireAsync(leaseTime, unit, Thread.currentThread().getId()));
+    private Long tryAcquire(long waitTime,long leaseTime, TimeUnit unit) {
+        //Long long1 = get(tryAcquireAsync(leaseTime, unit, Thread.currentThread().getId()));
+        Long ttl = 0L;
+		Future<Long> futrue = tryAcquireAsync(leaseTime, unit, Thread.currentThread().getId());
+		ttl = getFuture(futrue,waitTime,unit);
+		return ttl;
     }
+    
+    
     
     private Future<Boolean> tryAcquireOnceAsync(long leaseTime, TimeUnit unit, long threadId) {
         if (leaseTime != -1) {
@@ -191,7 +218,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
     @Override
     public boolean tryLock() {
-        return get(tryLockAsync());
+        return getFuture(tryLockAsync());
     }
 
     private void scheduleExpirationRenewal() {
@@ -254,7 +281,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
     @Override
     public boolean tryLock(long waitTime, long leaseTime, TimeUnit unit) throws InterruptedException {
         long time = unit.toMillis(waitTime);
-        Long ttl = tryAcquire(leaseTime, unit);
+        Long ttl = tryAcquire(waitTime,leaseTime, unit);
         // lock acquired
         if (ttl == null) {
             return true;
@@ -276,7 +303,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
         try {
             while (true) {
-                ttl = tryAcquire(leaseTime, unit);
+                ttl = tryAcquire(waitTime,leaseTime, unit);
                 // lock acquired
                 if (ttl == null) {
                     return true;
@@ -368,7 +395,8 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
     @Override
     public void forceUnlock() {
-        get(forceUnlockAsync());
+    	//get(forceUnlockAsync());
+    	getFuture(forceUnlockAsync());
     }
 
     @Override
