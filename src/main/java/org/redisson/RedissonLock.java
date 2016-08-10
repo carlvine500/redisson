@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 
 import org.redisson.client.RedisException;
-import org.redisson.client.RedisTimeoutException;
+import org.redisson.client.RedisException;
 import org.redisson.client.codec.LongCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.RedisStrictCommand;
@@ -151,7 +151,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 			try {
 				ttl = get(tryAcquireAsync(leaseTime, unit, Thread.currentThread().getId()));
 				break;
-			} catch (RedisTimeoutException e) {
+			} catch (RedisException e) {
 				log.error("please skip this error,key=" + getName() + ",try times=" + i, e);
 				if (i == RETRY_COUNT) {
 					throw new RedisException("error key=" + getName(), e);
@@ -212,7 +212,7 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 			try {
 				result = get(tryLockAsync());
 				break;
-			} catch (RedisTimeoutException e) {
+			} catch (RedisException e) {
 				log.warn("please skip this exception,key=" + getName() + ",try times=" + i, e);
 				if (i == RETRY_COUNT) {
 					throw new RedisException("error key=" + getName(), e);
@@ -395,10 +395,20 @@ public class RedissonLock extends RedissonExpirable implements RLock {
         throw new UnsupportedOperationException();
     }
 
-    @Override
-    public void forceUnlock() {
-        get(forceUnlockAsync());
-    }
+	@Override
+	public void forceUnlock() {
+		for (int i = 1; i <= RETRY_COUNT; i++) {
+			try {
+				get(forceUnlockAsync());
+				break;
+			} catch (RedisException e) {
+				log.warn("please skip this exception,key=" + getName() + ",try times=" + i, e);
+				if (i == RETRY_COUNT) {
+					throw new RedisException("error key=" + getName(), e);
+				}
+			}
+		}
+	}
 
     @Override
     public Future<Boolean> forceUnlockAsync() {
