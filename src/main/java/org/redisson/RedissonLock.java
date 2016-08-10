@@ -15,6 +15,14 @@
  */
 package org.redisson;
 
+import io.netty.util.Timeout;
+import io.netty.util.TimerTask;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.FutureListener;
+import io.netty.util.concurrent.Promise;
+import io.netty.util.concurrent.ScheduledFuture;
+import io.netty.util.internal.PlatformDependent;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
@@ -25,6 +33,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Condition;
 
+import org.redisson.client.RedisException;
+import org.redisson.client.RedisTimeoutException;
 import org.redisson.client.codec.LongCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.RedisStrictCommand;
@@ -33,14 +43,6 @@ import org.redisson.core.RLock;
 import org.redisson.pubsub.LockPubSub;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import io.netty.util.Timeout;
-import io.netty.util.TimerTask;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.FutureListener;
-import io.netty.util.concurrent.Promise;
-import io.netty.util.concurrent.ScheduledFuture;
-import io.netty.util.internal.PlatformDependent;
 
 /**
  * Distributed implementation of {@link java.util.concurrent.locks.Lock}
@@ -54,7 +56,9 @@ import io.netty.util.internal.PlatformDependent;
  */
 public class RedissonLock extends RedissonExpirable implements RLock {
 
-    private final Logger log = LoggerFactory.getLogger(RedissonLock.class);
+    private static final int RETRY_COUNT = 3;
+
+	private final Logger log = LoggerFactory.getLogger(RedissonLock.class);
     
     public static final long LOCK_EXPIRATION_INTERVAL_SECONDS = 30;
     private static final ConcurrentMap<String, Timeout> expirationRenewalMap = PlatformDependent.newConcurrentHashMap();
@@ -141,9 +145,21 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 //        get(lockAsync(leaseTime, unit));
     }
     
-    private Long tryAcquire(long leaseTime, TimeUnit unit) {
-        return get(tryAcquireAsync(leaseTime, unit, Thread.currentThread().getId()));
-    }
+	private Long tryAcquire(long leaseTime, TimeUnit unit) {
+		Long ttl = 0L;
+		for (int i = 1; i <= RETRY_COUNT; i++) {
+			try {
+				ttl = get(tryAcquireAsync(leaseTime, unit, Thread.currentThread().getId()));
+				break;
+			} catch (RedisTimeoutException e) {
+				log.error("please skip this error,key=" + getName() + ",try times=" + i, e);
+				if (i == RETRY_COUNT) {
+					throw new RedisException("error key=" + getName(), e);
+				}
+			}
+		}
+		return ttl;
+	}
     
     private Future<Boolean> tryAcquireOnceAsync(long leaseTime, TimeUnit unit, long threadId) {
         if (leaseTime != -1) {
@@ -191,7 +207,19 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
     @Override
     public boolean tryLock() {
-        return get(tryLockAsync());
+    	boolean result = false;
+    	for (int i = 1; i <= RETRY_COUNT; i++) {
+			try {
+				result = get(tryLockAsync());
+				break;
+			} catch (RedisTimeoutException e) {
+				log.warn("please skip this exception,key=" + getName() + ",try times=" + i, e);
+				if (i == RETRY_COUNT) {
+					throw new RedisException("error key=" + getName(), e);
+				}
+			}
+		}
+        return result;
     }
 
     private void scheduleExpirationRenewal() {
@@ -322,32 +350,33 @@ public class RedissonLock extends RedissonExpirable implements RLock {
 
     @Override
     public void unlock() {
-        Boolean opStatus = commandExecutor.evalWrite(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
-                        "if (redis.call('exists', KEYS[1]) == 0) then " +
-                            "redis.call('publish', KEYS[2], ARGV[1]); " +
-                            "return 1; " +
-                        "end;" +
-                        "if (redis.call('hexists', KEYS[1], ARGV[3]) == 0) then " +
-                            "return nil;" +
-                        "end; " +
-                        "local counter = redis.call('hincrby', KEYS[1], ARGV[3], -1); " +
-                        "if (counter > 0) then " +
-                            "redis.call('pexpire', KEYS[1], ARGV[2]); " +
-                            "return 0; " +
-                        "else " +
-                            "redis.call('del', KEYS[1]); " +
-                            "redis.call('publish', KEYS[2], ARGV[1]); " +
-                            "return 1; "+
-                        "end; " +
-                        "return nil;",
-                        Arrays.<Object>asList(getName(), getChannelName()), LockPubSub.unlockMessage, internalLockLeaseTime, getLockName(Thread.currentThread().getId()));
-        if (opStatus == null) {
-            throw new IllegalMonitorStateException("attempt to unlock lock, not locked by current thread by node id: "
-                    + id + " thread-id: " + Thread.currentThread().getId());
-        }
-        if (opStatus) {
-            cancelExpirationRenewal();
-        }
+    	forceUnlock();
+//        Boolean opStatus = commandExecutor.evalWrite(getName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+//                        "if (redis.call('exists', KEYS[1]) == 0) then " +
+//                            "redis.call('publish', KEYS[2], ARGV[1]); " +
+//                            "return 1; " +
+//                        "end;" +
+//                        "if (redis.call('hexists', KEYS[1], ARGV[3]) == 0) then " +
+//                            "return nil;" +
+//                        "end; " +
+//                        "local counter = redis.call('hincrby', KEYS[1], ARGV[3], -1); " +
+//                        "if (counter > 0) then " +
+//                            "redis.call('pexpire', KEYS[1], ARGV[2]); " +
+//                            "return 0; " +
+//                        "else " +
+//                            "redis.call('del', KEYS[1]); " +
+//                            "redis.call('publish', KEYS[2], ARGV[1]); " +
+//                            "return 1; "+
+//                        "end; " +
+//                        "return nil;",
+//                        Arrays.<Object>asList(getName(), getChannelName()), LockPubSub.unlockMessage, internalLockLeaseTime, getLockName(Thread.currentThread().getId()));
+//        if (opStatus == null) {
+//            throw new IllegalMonitorStateException("attempt to unlock lock, not locked by current thread by node id: "
+//                    + id + " thread-id: " + Thread.currentThread().getId());
+//        }
+//        if (opStatus) {
+//            cancelExpirationRenewal();
+//        }
 
 //        Future<Void> future = unlockAsync();
 //        future.awaitUninterruptibly();
