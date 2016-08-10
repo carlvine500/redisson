@@ -112,6 +112,7 @@ public interface RLock extends Lock, RExpirable {
      *
      * @return holds or <code>0</code> if this lock is not held by current thread
      */
+    @Deprecated
     int getHoldCount();
 
     Future<Boolean> forceUnlockAsync();
