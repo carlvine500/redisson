@@ -15,6 +15,12 @@
  */
 package org.redisson.cluster;
 
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.FutureListener;
+import io.netty.util.concurrent.GlobalEventExecutor;
+import io.netty.util.concurrent.Promise;
+import io.netty.util.concurrent.ScheduledFuture;
+
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -44,12 +50,6 @@ import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.connection.SingleEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.FutureListener;
-import io.netty.util.concurrent.GlobalEventExecutor;
-import io.netty.util.concurrent.Promise;
-import io.netty.util.concurrent.ScheduledFuture;
 
 public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 
@@ -343,6 +343,7 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
                 }
 
                 Collection<ClusterPartition> newPartitions = parsePartitions(nodes);
+                slaveFailoverAsMaster(newPartitions);
                 checkMasterNodesChange(newPartitions);
                 checkSlaveNodesChange(newPartitions);
                 checkSlotsChange(cfg, newPartitions);
@@ -350,6 +351,26 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
             }
         });
     }
+    
+	private void slaveFailoverAsMaster(Collection<ClusterPartition> newPartitions) {
+		for (ClusterPartition oldPart : lastPartitions.values()) {
+			for (ClusterPartition newPart : newPartitions) {
+				for (URI oldSlaveAddr : oldPart.getSlaveAddresses()) {
+					URI newMasterAddress = newPart.getMasterAddress();
+					if (oldSlaveAddr.equals(newMasterAddress)) {
+						MasterSlaveEntry entry = getEntry(oldPart.getMasterAddr());
+						if (entry != null) {
+							entry.changeMaster(newMasterAddress.getHost(), newMasterAddress.getPort());
+							oldPart.removeSlaveAddress(oldPart.getMasterAddress());
+							oldPart.setMasterAddress(newMasterAddress);
+							log.info("slaveFailoverAsMaster,master:{},slave:{}", oldSlaveAddr,
+									oldPart.getMasterAddress());
+						}
+					}
+				}
+			}
+		}
+	}
 
     private void checkSlaveNodesChange(Collection<ClusterPartition> newPartitions) {
         for (ClusterPartition newPart : newPartitions) {
@@ -392,6 +413,10 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
     private void addRemoveSlaves(final MasterSlaveEntry entry, final ClusterPartition currentPart, final ClusterPartition newPart) {
         Set<URI> removedSlaves = new HashSet<URI>(currentPart.getSlaveAddresses());
         removedSlaves.removeAll(newPart.getSlaveAddresses());
+
+        if (entry == null) {
+			return;
+		}
 
         for (URI uri : removedSlaves) {
             currentPart.removeSlaveAddress(uri);
