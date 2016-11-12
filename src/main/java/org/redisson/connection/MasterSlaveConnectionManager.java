@@ -335,69 +335,69 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             return;
         }
 
-        Set<PubSubConnectionEntry> entries = new HashSet<PubSubConnectionEntry>(name2PubSubConnection.values());
-        for (final PubSubConnectionEntry entry : entries) {
-            if (entry.tryAcquire()) {
-                final PubSubConnectionEntry oldEntry = name2PubSubConnection.putIfAbsent(channelName, entry);
-                if (oldEntry != null) {
-                    entry.release();
-                    
-                    oldEntry.lock();
-                        if (name2PubSubConnection.get(channelName) != oldEntry) {
-                            oldEntry.unlock();
-                            subscribe(codec, channelName, listener, promise, type);
-                            return;
-                        }
-                        
-	                	if (oldEntry.isActive()) {
-	                        oldEntry.addListener(channelName, listener);
-	                        oldEntry.getSubscribeFuture(channelName, type).addListener(new FutureListener<Void>() {
-	                            @Override
-	                            public void operationComplete(Future<Void> future) throws Exception {
-	                                promise.setSuccess(oldEntry);
-	                            }
-	                        });
-	                        oldEntry.unlock();
-	                        return;
-	                    }
-                        oldEntry.unlock();
-
-                    subscribe(codec, channelName, listener, promise, type);
-                    return;
-                }
-                
-                entry.lock();
-                    if (name2PubSubConnection.get(channelName) != entry) {
-                        entry.unlock();
-                        subscribe(codec, channelName, listener, promise, type);
-                        return;
-                    }
-                    
-                    if (!entry.isActive()) {
-                        entry.release();
-                        entry.unlock();
-                        subscribe(codec, channelName, listener, promise, type);
-                        return;
-                    }
-                    
-                    entry.getSubscribeFuture(channelName, type).addListener(new FutureListener<Void>() {
-                        @Override
-                        public void operationComplete(Future<Void> future) throws Exception {
-                            promise.setSuccess(entry);
-                        }
-                    });
-
-                    entry.addListener(channelName, listener);
-                    if (PubSubType.PSUBSCRIBE == type) {
-                        entry.psubscribe(codec, channelName);
-                    } else {
-                        entry.subscribe(codec, channelName);
-                    }
-                    entry.unlock();
-                
-                return;
-            }
-        }
+//        Set<PubSubConnectionEntry> entries = new HashSet<PubSubConnectionEntry>(name2PubSubConnection.values());
+//        for (final PubSubConnectionEntry entry : entries) {
+//            if (entry.tryAcquire()) {
+//                final PubSubConnectionEntry oldEntry = name2PubSubConnection.putIfAbsent(channelName, entry);
+//                if (oldEntry != null) {
+//                    entry.release();
+//                    
+//                    oldEntry.lock();
+//                        if (name2PubSubConnection.get(channelName) != oldEntry) {
+//                            oldEntry.unlock();
+//                            subscribe(codec, channelName, listener, promise, type);
+//                            return;
+//                        }
+//                        
+//	                	if (oldEntry.isActive()) {
+//	                        oldEntry.addListener(channelName, listener);
+//	                        oldEntry.getSubscribeFuture(channelName, type).addListener(new FutureListener<Void>() {
+//	                            @Override
+//	                            public void operationComplete(Future<Void> future) throws Exception {
+//	                                promise.setSuccess(oldEntry);
+//	                            }
+//	                        });
+//	                        oldEntry.unlock();
+//	                        return;
+//	                    }
+//                        oldEntry.unlock();
+//
+//                    subscribe(codec, channelName, listener, promise, type);
+//                    return;
+//                }
+//                
+//                entry.lock();
+//                    if (name2PubSubConnection.get(channelName) != entry) {
+//                        entry.unlock();
+//                        subscribe(codec, channelName, listener, promise, type);
+//                        return;
+//                    }
+//                    
+//                    if (!entry.isActive()) {
+//                        entry.release();
+//                        entry.unlock();
+//                        subscribe(codec, channelName, listener, promise, type);
+//                        return;
+//                    }
+//                    
+//                    entry.getSubscribeFuture(channelName, type).addListener(new FutureListener<Void>() {
+//                        @Override
+//                        public void operationComplete(Future<Void> future) throws Exception {
+//                            promise.setSuccess(entry);
+//                        }
+//                    });
+//
+//                    entry.addListener(channelName, listener);
+//                    if (PubSubType.PSUBSCRIBE == type) {
+//                        entry.psubscribe(codec, channelName);
+//                    } else {
+//                        entry.subscribe(codec, channelName);
+//                    }
+//                    entry.unlock();
+//                
+//                return;
+//            }
+//        }
 
         connect(codec, channelName, listener, promise, type);
     }
