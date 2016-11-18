@@ -42,7 +42,7 @@ public class RedissonLockEntry implements PubSubEntry<RedissonLockEntry> {
         return --counter;
     }
 
-    public Promise<RedissonLockEntry> getPromise() {
+	public Promise<RedissonLockEntry> getPromise() {
         return promise;
     }
 

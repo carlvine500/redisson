@@ -337,6 +337,20 @@ public class MasterSlaveEntry {
         }
         connectionManager.shutdownAsync(oldMaster.getClient());
     }
+    
+    public void changeMasterByFailover(String host, int port) {
+        ClientConnectionsEntry oldMaster = masterEntry;
+        setupMasterEntry(host, port);
+        writeConnectionHolder.remove(oldMaster);
+//        slaveDown(oldMaster, FreezeReason.MANAGER);
+//
+//        // more than one slave available, so master can be removed from slaves
+//        if (config.getReadMode() == ReadMode.SLAVE
+//                && slaveBalancer.getAvailableClients() > 1) {
+//            slaveDown(host, port, FreezeReason.SYSTEM);
+//        }
+//        connectionManager.shutdownAsync(oldMaster.getClient());
+    }
 
     public boolean isFreezed() {
         return masterEntry.isFreezed();

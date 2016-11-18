@@ -360,8 +360,8 @@ public class ClusterConnectionManager extends MasterSlaveConnectionManager {
 					if (oldSlaveAddr.equals(newMasterAddress)) {
 						MasterSlaveEntry entry = getEntry(oldPart.getMasterAddr());
 						if (entry != null) {
-							entry.changeMaster(newMasterAddress.getHost(), newMasterAddress.getPort());
-							oldPart.removeSlaveAddress(oldPart.getMasterAddress());
+							entry.changeMasterByFailover(newMasterAddress.getHost(), newMasterAddress.getPort());
+							// oldPart.removeSlaveAddress(oldPart.getMasterAddress());
 							oldPart.setMasterAddress(newMasterAddress);
 							log.info("slaveFailoverAsMaster,master:{},slave:{}", oldSlaveAddr,
 									oldPart.getMasterAddress());
